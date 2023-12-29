@@ -5,37 +5,48 @@ import matplotlib.animation as animation
 from scipy.stats import qmc
 
 """ TODO: 
-        * Hashgrids? 
+        * Hashgrids?
+        * Virer disque de poisson
 """
 
 # UTILS
 #   constants are prefixed w/ C_
 
 """Numerical scheme"""
-C_TIMESTEP  = 5_000 # number of timesteps
-C_N = 30 # number of particles 
-C_dt = 0.001
+C_TIMESTEP  = 2000 # number of timesteps
+C_N = 30 # number of light particles
+C_N_HEAVY = 1 # number of heavy particles
+
+C_dt = 0.01
 
 """Box"""
-C_L = 20
+C_L = 10
 
 """Lennard-Jones"""
-C_EPSILON   = 1
-C_SIGMA     = 1
+C_EPSILON   = 0.4
+C_SIGMA     = 0.3
+C_SIGMA_HEAVY = 0.6
+
+C_VELOCITIES_SCALING_FACTOR = 1
 
 """ Particles """
-C_MASS = 10
-C_RADIUS = 0.1
-C_POISSON_RADIUS = 1/C_N
+C_MASS = 1
+C_MASS_HEAVY = 3
+
+C_RADIUS = C_SIGMA
+C_RADIUS_HEAVY = 2
 
 
-# forces
+C_POISSON_RADIUS = 1/C_N 
+
+
+""" AFFICHAGE """
+C_INTERVAL = 1 # toutes les X millisecondes, la fenêtre est redessinée 
+
+
+# FORCES
 def Flj(r, sigma = C_SIGMA, epsilon = C_EPSILON):
     return 4*epsilon * ( (12*sigma**12)/(r**13) - (6*sigma**6)/(r**7) )
-
-def Fwall(d, L = C_L):
-    return 1/d**6 + 1/(L-d)**6
-
 
 # CLASSES 
 class Particle:
@@ -70,21 +81,23 @@ class Particle:
         self.ay[0] = ay0
 
 
-        # to draw
-        self.color = "r"
-
 class System:
-    def __init__(self, N = C_N):
-        self.particles = np.empty(N, dtype=object)
-        self.init_particles(N)
+    def __init__(self, N = C_N, N_HEAVY=C_N_HEAVY):
+        self.particles = np.empty(N+N_HEAVY, dtype=object)
+        self.init_particles(N, N_HEAVY)
 
-    def init_particles(self, N):
-        # crade
+    def init_particles(self, N, N_HEAVY):
         engine = qmc.PoissonDisk(d=2, radius=C_POISSON_RADIUS)
-        poss = engine.random(n=N)
-        for i in range(len(poss)):
-            x0,y0 = poss[i]*C_L - C_L/2
-            self.particles[i] = Particle(x0=x0, y0=y0)
+        pos = engine.random(n=N+N_HEAVY)
+        vel = engine.random(n=N+N_HEAVY)
+        for i in range(N):
+             x0,y0 = pos[i]*C_L - C_L/2
+             vx0,vy0 = vel[i]*C_VELOCITIES_SCALING_FACTOR # un peu crade pour generer les vitesses de depart
+             self.particles[i] = Particle(x0=x0, y0=y0, vx0=vx0, vy0=vy0)
+
+        for i in range(N, len(pos)):
+            x0,y0 = pos[i]*C_L - C_L / 3
+            self.particles[i] = Particle(mass=C_MASS_HEAVY, x0 = x0, y0 = y0)
 
 class Solver:
     def __init__(self,  timestep = C_TIMESTEP, dt = C_dt,
@@ -102,7 +115,7 @@ class Solver:
     def solve(self):
         times = np.linspace(0, self.dt*self.timestep, num = self.timestep)
         for t in range(self.timestep-1):
-            print(f"{t/(self.timestep-1)*100 :.2f} %")
+            print(f"\rComputing: {t/(self.timestep-2)*100 :.2f}% ...", end="")
             self.solve_step(t)
 
     def verlet_step(self, t):
@@ -123,7 +136,7 @@ class Solver:
                                     + particles[i].vy[t] * self.dt \
                                     + 0.5 * particles[i].ay[t] * self.dt**2
 
-        # compute acceleration
+        # update accelerations
         for i in range(N):
             for j in range(N):
                 if(i == j):
@@ -133,31 +146,27 @@ class Solver:
                 ydif = particles[i].y[t+1] - particles[j].y[t+1]
 
                 r = np.sqrt( xdif**2 + ydif**2 )
-                
-                # https://stackoverflow.com/questions/26658917/calculate-angle-between-two-vectors-atan2-discontinuity-issue
-                a = particles[i].x[t+1] * particles[j].y[t+1] - particles[j].x[t+1] * particles[i].y[t+1]
-                b = particles[i].x[t+1]*particles[j].x[t+1] + particles[i].y[t+1] * particles[j].y[t+1]
-                theta = np.mod(np.arctan2(a,b), 2*np.pi)
 
-
-                # theta = np.arctan(ydif/xdif) # trop couteux, discontinuité
-
+                sig = C_SIGMA if particles[i].mass == C_MASS else C_SIGMA_HEAVY
                 rhs = Flj(r) / particles[i].mass
-                particles[i].ax[t+1] += rhs*np.cos(theta)
-                particles[i].ay[t+1] += rhs*np.sin(theta)
+                particles[i].ax[t+1] += rhs*xdif/r
+                particles[i].ay[t+1] += rhs*ydif/r
 
-                # wall
-                particles[i].ax[t+1] +=  Fwall(np.abs(C_L - particles[i].x[t+1])) / particles[i].mass
-                particles[i].ay[t+1] +=  Fwall(np.abs(C_L - particles[i].y[t+1])) / particles[i].mass
-
-                particles[i].ax[t+1] -=  Fwall(np.abs(-C_L - particles[i].x[t+1])) / particles[i].mass
-                particles[i].ay[t+1] -=  Fwall(np.abs(-C_L - particles[i].y[t+1])) / particles[i].mass
-        # velocities
+        # update velocities
         for i in range(N):
+            
             particles[i].vx[t+1] = particles[i].vx[t] \
                                    + 0.5 *  ( particles[i].ax[t] + particles[i].ax[t+1]) * self.dt
             particles[i].vy[t+1] =  particles[i].vy[t] \
                                     + 0.5 *  ( particles[i].ay[t] + particles[i].ay[t+1]) * self.dt
+
+            # wall
+            if(particles[i].x[t+1] > C_L/2 or particles[i].x[t+1] < -C_L/2):
+                particles[i].vx[t+1] = - particles[i].vx[t+1]
+            if(particles[i].y[t+1] > C_L/2 or particles[i].y[t+1] < -C_L/2):
+                particles[i].vy[t+1] = - particles[i].vy[t+1]
+            
+                
     
 
 if __name__ == "__main__":
@@ -165,20 +174,38 @@ if __name__ == "__main__":
     solver.solve()
     
     fig,ax= plt.subplots()
-    line, = ax.plot([], [],'o', color="k")
+
+    line_light, = ax.plot([], [],'o', color="k", markersize = 72/C_L)
+    line_heavy, = ax.plot([], [],'o', color="royalblue", markersize = C_RADIUS_HEAVY * 72/C_L)
+    
     ax.set_xlim(left=-C_L/2, right=C_L/2)
     ax.set_ylim(bottom=-C_L/2, top=C_L/2)
+    plt.grid()
+    print("")
 
     def animate(t):
-        x_positions = [particle.x[t] for particle in solver.system.particles]
-        y_positions = [particle.y[t] for particle in solver.system.particles]
+        print(f"\rFrame: {t+1}/{C_TIMESTEP} ...", end="")
 
-        print(f"{x_positions[-1]},{y_positions[-1]}")
+        # couteux
+        light_part = list(filter(lambda part : part.mass == C_MASS, solver.system.particles))
+        heavy_part = list(filter(lambda part : part.mass == C_MASS_HEAVY, solver.system.particles))
+        
+        # light
+        x_positions = [particle.x[t] for particle in light_part]
+        y_positions = [particle.y[t] for particle in light_part]
+        line_light.set_data(x_positions, y_positions)
 
-        line.set_data(x_positions, y_positions)
-        return line,
+        # heavy
+        x_heavy_positions = [particle.x[t] for particle in heavy_part]
+        y_heavy_positions = [particle.y[t] for particle in heavy_part]
+        line_heavy.set_data(x_heavy_positions, y_heavy_positions)
+        
+        return line_light,line_heavy
     
     ani = animation.FuncAnimation(fig, animate, frames=C_TIMESTEP,
-                                interval=1, blit=True, repeat=False)
+                                  interval=C_INTERVAL, blit=True, repeat=True)
     plt.show()
+    print("\nAll done!")
+
+    
     
