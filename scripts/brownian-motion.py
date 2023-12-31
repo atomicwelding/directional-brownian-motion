@@ -6,21 +6,23 @@ from scipy.stats import qmc
 
 """ TODO: 
         * Hashgrids?
-        * Virer disque de poisson
+        * Calculer l'énergie cinétique
+        * Thermostat
 """
 
 # UTILS
 #   constants are prefixed w/ C_
 
 """Numerical scheme"""
-C_TIMESTEP  = 2000 # number of timesteps
-C_N = 30 # number of light particles
-C_N_HEAVY = 1 # number of heavy particles
+C_TIMESTEP  = 5000 # number of timesteps
+C_N = 5 # number of light particles
+C_N_HEAVY = 5 # number of heavy particles
 
 C_dt = 0.01
 
 """Box"""
-C_L = 10
+C_L = 100
+C_T = 300
 
 """Lennard-Jones"""
 C_EPSILON   = 0.4
@@ -28,6 +30,8 @@ C_SIGMA     = 0.3
 C_SIGMA_HEAVY = 0.6
 
 C_VELOCITIES_SCALING_FACTOR = 1
+
+
 
 """ Particles """
 C_MASS = 1
@@ -39,8 +43,7 @@ C_RADIUS_HEAVY = 2
 
 C_POISSON_RADIUS = 1/C_N 
 
-
-""" AFFICHAGE """
+""" DISPLAY  """
 C_INTERVAL = 1 # toutes les X millisecondes, la fenêtre est redessinée 
 
 
@@ -86,7 +89,38 @@ class System:
         self.particles = np.empty(N+N_HEAVY, dtype=object)
         self.init_particles(N, N_HEAVY)
 
+
     def init_particles(self, N, N_HEAVY):
+        npart = N+N_HEAVY
+        nbpos = int(np.sqrt(npart)) + 1
+
+        # shitty
+        lower = -C_L/2 + C_RADIUS
+        higher = C_L/2 - C_RADIUS
+
+        # generate a grid
+        xs = np.linspace(lower, higher, nbpos)
+        pos = [(x0,y0) for x0 in xs for y0 in xs]
+
+        # normal distribution
+        vp = np.random.normal(size=(npart, 2)) * C_VELOCITIES_SCALING_FACTOR
+
+        
+        for i in range(N):
+            self.particles[i] = Particle(x0=pos[i][0],
+                                         y0=pos[i][1],
+                                         vx0=vp[i][0],
+                                         vy0=vp[i][1])
+
+        for i in range(N, N+N_HEAVY):
+            self.particles[i] = Particle(x0=pos[i][0],
+                                         y0=pos[i][1],
+                                         vx0=vp[i][0],
+                                         vy0=vp[i][1],
+                                         mass = C_MASS_HEAVY)    
+    def init_particles_poisson_disk(self, N, N_HEAVY):
+        """ Deprecated.
+        """
         engine = qmc.PoissonDisk(d=2, radius=C_POISSON_RADIUS)
         pos = engine.random(n=N+N_HEAVY)
         vel = engine.random(n=N+N_HEAVY)
