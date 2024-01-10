@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 # scripting before implementing it in cpp
+=======
+>>>>>>> 0963a81 (update)
 import numpy as np
 
 import matplotlib.patches as mpatches
