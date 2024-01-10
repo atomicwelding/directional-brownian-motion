@@ -1,36 +1,37 @@
-import numpy as np 
+import numpy as np
+
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from scipy.stats import qmc
+from random import choices
 
-""" TODO: 
-        * Hashgrids?
-        * Calculer l'énergie cinétique
-        * Thermostat
-"""
+
 
 # UTILS
 #   constants are prefixed w/ C_
 
 """Numerical scheme"""
-C_TIMESTEP  = 5000 # number of timesteps
-C_N = 5 # number of light particles
-C_N_HEAVY = 5 # number of heavy particles
+C_TIMESTEP  = 100_000 # number of timesteps
+C_N = 200 # number of light particles
+C_N_HEAVY = 20 # number of heavy particles
 
-C_dt = 0.01
+C_dt = 0.001
 
 """Box"""
-C_L = 100
-C_T = 300
+C_L = 80
+
+
+""" THERMOSTAT """
+C_T = 1*C_dt # for thermostat
+C_W_THERM = C_L/4
+C_H_THERM = C_L
+C_TIME_BEFORE_THERM = 1000
 
 """Lennard-Jones"""
 C_EPSILON   = 0.4
 C_SIGMA     = 0.3
 C_SIGMA_HEAVY = 0.6
-
-C_VELOCITIES_SCALING_FACTOR = 1
-
 
 
 """ Particles """
@@ -40,11 +41,11 @@ C_MASS_HEAVY = 3
 C_RADIUS = C_SIGMA
 C_RADIUS_HEAVY = 2
 
+C_VELOCITIES_SCALING_FACTOR = 1
 
-C_POISSON_RADIUS = 1/C_N 
 
 """ DISPLAY  """
-C_INTERVAL = 1 # toutes les X millisecondes, la fenêtre est redessinée 
+C_INTERVAL = 1 # each C_INTERVAL milliseconds, buffer is redrawn 
 
 
 # FORCES
@@ -83,6 +84,8 @@ class Particle:
         self.ax[0] = ax0
         self.ay[0] = ay0
 
+        # kinetic energy
+        self.T = lambda dt : 0.5 * self.mass * (self.vx[dt]**2 + self.vy[dt]**2)
 
 class System:
     def __init__(self, N = C_N, N_HEAVY=C_N_HEAVY):
@@ -94,10 +97,8 @@ class System:
         npart = N+N_HEAVY
         nbpos = int(np.sqrt(npart)) + 1
 
-        # shitty
         lower = -C_L/2 + C_RADIUS
         higher = C_L/2 - C_RADIUS
-
         # generate a grid
         xs = np.linspace(lower, higher, nbpos)
         pos = [(x0,y0) for x0 in xs for y0 in xs]
@@ -105,34 +106,32 @@ class System:
         # normal distribution
         vp = np.random.normal(size=(npart, 2)) * C_VELOCITIES_SCALING_FACTOR
 
-        
-        for i in range(N):
-            self.particles[i] = Particle(x0=pos[i][0],
-                                         y0=pos[i][1],
-                                         vx0=vp[i][0],
-                                         vy0=vp[i][1])
+        # ensure at least one big particle that we will track 
+        self.particles[0] = Particle(x0=pos[0][0],
+                                          y0=pos[0][1],
+                                          vx0=vp[0][0],
+                                          vy0=vp[0][1],
+                                          mass = C_MASS_HEAVY)
+        # proportion
+        TOTAL_PARTICLE = N+N_HEAVY
+        for i in range(1, TOTAL_PARTICLE):
+            psize = choices([-1, 1], [N_HEAVY/TOTAL_PARTICLE, N/TOTAL_PARTICLE])
 
-        for i in range(N, N+N_HEAVY):
-            self.particles[i] = Particle(x0=pos[i][0],
-                                         y0=pos[i][1],
-                                         vx0=vp[i][0],
-                                         vy0=vp[i][1],
-                                         mass = C_MASS_HEAVY)    
-    def init_particles_poisson_disk(self, N, N_HEAVY):
-        """ Deprecated.
-        """
-        engine = qmc.PoissonDisk(d=2, radius=C_POISSON_RADIUS)
-        pos = engine.random(n=N+N_HEAVY)
-        vel = engine.random(n=N+N_HEAVY)
-        for i in range(N):
-             x0,y0 = pos[i]*C_L - C_L/2
-             vx0,vy0 = vel[i]*C_VELOCITIES_SCALING_FACTOR # un peu crade pour generer les vitesses de depart
-             self.particles[i] = Particle(x0=x0, y0=y0, vx0=vx0, vy0=vy0)
-
-        for i in range(N, len(pos)):
-            x0,y0 = pos[i]*C_L - C_L / 3
-            self.particles[i] = Particle(mass=C_MASS_HEAVY, x0 = x0, y0 = y0)
-
+            #big particle
+            if(psize == -1):
+                self.particles[i] = Particle(x0=pos[i][0],
+                                          y0=pos[i][1],
+                                          vx0=vp[i][0],
+                                          vy0=vp[i][1],
+                                          mass = C_MASS_HEAVY)
+            #small ones
+            else:
+                self.particles[i] = Particle(x0=pos[i][0],
+                                          y0=pos[i][1],
+                                          vx0=vp[i][0],
+                                          vy0=vp[i][1])
+            
+    
 class Solver:
     def __init__(self,  timestep = C_TIMESTEP, dt = C_dt,
                         system = System(), scheme='verlet'):
@@ -159,6 +158,8 @@ class Solver:
         """ 
         particles = self.system.particles
         N = len(particles)
+
+       
 
         #update positions
         for i in range(N):
@@ -194,6 +195,17 @@ class Solver:
             particles[i].vy[t+1] =  particles[i].vy[t] \
                                     + 0.5 *  ( particles[i].ay[t] + particles[i].ay[t+1]) * self.dt
 
+
+            #thermostat
+            if(t >= C_TIME_BEFORE_THERM and particles[i].x[t+1] < (-C_L/2 + C_W_THERM)):
+                if(particles[i].T(t+1) >= 1):
+                    particles[i].vx[t+1] -= C_T
+                    particles[i].vy[t+1] -= C_T
+
+                elif(particles[i].T(t+1) < 0.8):
+                     particles[i].vx[t+1] += C_T
+                     particles[i].vy[t+1] += C_T
+
             # wall
             if(particles[i].x[t+1] > C_L/2 or particles[i].x[t+1] < -C_L/2):
                 particles[i].vx[t+1] = - particles[i].vx[t+1]
@@ -211,6 +223,12 @@ if __name__ == "__main__":
 
     line_light, = ax.plot([], [],'o', color="k", markersize = 72/C_L)
     line_heavy, = ax.plot([], [],'o', color="royalblue", markersize = C_RADIUS_HEAVY * 72/C_L)
+    track_one_particle, = ax.plot([], [], '-', color="royalblue")
+
+    # drawing thermostat 
+    rect = mpatches.Rectangle((-C_L/2, -C_L/2), C_W_THERM, C_H_THERM, alpha = 0.1, facecolor="red")
+    ax.add_patch(rect)
+
     
     ax.set_xlim(left=-C_L/2, right=C_L/2)
     ax.set_ylim(bottom=-C_L/2, top=C_L/2)
@@ -220,9 +238,13 @@ if __name__ == "__main__":
     def animate(t):
         print(f"\rFrame: {t+1}/{C_TIMESTEP} ...", end="")
 
-        # couteux
+        # not ideal
         light_part = list(filter(lambda part : part.mass == C_MASS, solver.system.particles))
         heavy_part = list(filter(lambda part : part.mass == C_MASS_HEAVY, solver.system.particles))
+
+        tr_x = heavy_part[0].x[0:t]
+        tr_y = heavy_part[0].y[0:t]
+        track_one_particle.set_data(tr_x, tr_y)
         
         # light
         x_positions = [particle.x[t] for particle in light_part]
@@ -234,7 +256,9 @@ if __name__ == "__main__":
         y_heavy_positions = [particle.y[t] for particle in heavy_part]
         line_heavy.set_data(x_heavy_positions, y_heavy_positions)
         
-        return line_light,line_heavy
+        
+        
+        return line_light,line_heavy,track_one_particle
     
     ani = animation.FuncAnimation(fig, animate, frames=C_TIMESTEP,
                                   interval=C_INTERVAL, blit=True, repeat=True)
