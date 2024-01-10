@@ -1,3 +1,4 @@
+# scripting before implementing it in cpp
 import numpy as np
 
 import matplotlib.patches as mpatches
