@@ -15,3 +15,4 @@ As of now, the simulation is running relatively slow. The thermostat used in the
 ## Results
 
 As of now, there are no quantitative results available. The simulation is a work in progress, and my first attempt at molecular dynamics has led to the identification of various interesting challenges.
+Will be recoded in C++ in the following weeks!
