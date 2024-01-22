@@ -1,7 +1,4 @@
-<<<<<<< HEAD
 # scripting before implementing it in cpp
-=======
->>>>>>> 0963a81 (update)
 import numpy as np
 
 import matplotlib.patches as mpatches
@@ -16,7 +13,7 @@ from random import choices
 #   constants are prefixed w/ C_
 
 """Numerical scheme"""
-C_TIMESTEP  = 100_000 # number of timesteps
+C_TIMESTEP  = 10_000 # number of timesteps
 C_N = 200 # number of light particles
 C_N_HEAVY = 20 # number of heavy particles
 
@@ -27,7 +24,7 @@ C_L = 80
 
 
 """ THERMOSTAT """
-C_T = 1*C_dt # for thermostat
+C_T = 0.1 # for thermostat
 C_W_THERM = C_L/4
 C_H_THERM = C_L
 C_TIME_BEFORE_THERM = 1000
@@ -203,18 +200,18 @@ class Solver:
             #thermostat
             if(t >= C_TIME_BEFORE_THERM and particles[i].x[t+1] < (-C_L/2 + C_W_THERM)):
                 if(particles[i].T(t+1) >= 1):
-                    particles[i].vx[t+1] -= C_T
-                    particles[i].vy[t+1] -= C_T
+                    particles[i].vx[t+1] *= (1.-C_T)
+                    particles[i].vy[t+1] *= (1.-C_T)
 
-                elif(particles[i].T(t+1) < 0.8):
-                     particles[i].vx[t+1] += C_T
-                     particles[i].vy[t+1] += C_T
+                elif(particles[i].T(t+1) <= 0.8):
+                     particles[i].vx[t+1] *= (1.+C_T)
+                     particles[i].vy[t+1] *= (1.+C_T)
 
             # wall
             if(particles[i].x[t+1] > C_L/2 or particles[i].x[t+1] < -C_L/2):
-                particles[i].vx[t+1] = - particles[i].vx[t+1]
+                 particles[i].vx[t+1] = - particles[i].vx[t+1]
             if(particles[i].y[t+1] > C_L/2 or particles[i].y[t+1] < -C_L/2):
-                particles[i].vy[t+1] = - particles[i].vy[t+1]
+                 particles[i].vy[t+1] = - particles[i].vy[t+1]
             
                 
     
