@@ -13,14 +13,14 @@ from random import choices
 #   constants are prefixed w/ C_
 
 """Numerical scheme"""
-C_TIMESTEP  = 10_000 # number of timesteps
-C_N = 200 # number of light particles
+C_TIMESTEP  = 5000 # number of timesteps
+C_N = 20 # number of light particles
 C_N_HEAVY = 20 # number of heavy particles
 
 C_dt = 0.001
 
 """Box"""
-C_L = 80
+C_L = 10
 
 
 """ THERMOSTAT """
